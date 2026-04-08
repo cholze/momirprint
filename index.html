@@ -66,6 +66,61 @@
             border-radius: 4px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
+        .card-left {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+        .card-info {
+            width: 300px;
+            flex-shrink: 0;
+            background: #16213e;
+            border: 1px solid #c9a227;
+            border-radius: 8px;
+            padding: 1rem;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        .card-info h2 {
+            color: #c9a227;
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+        .card-info .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.25rem 0;
+            border-bottom: 1px solid #1a1a2e;
+        }
+        .card-info .info-row:last-child { border-bottom: none; }
+        .card-info .info-label { color: #888; }
+        .card-info .info-value { color: #e0e0e0; text-align: right; }
+        .card-info .rarity-common { color: #b0b0b0; }
+        .card-info .rarity-uncommon { color: #a0c4e8; }
+        .card-info .rarity-rare { color: #d4af37; }
+        .card-info .rarity-mythic { color: #e87040; }
+        .card-info .rulings {
+            margin-top: 0.75rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid #c9a22744;
+        }
+        .card-info .rulings h3 {
+            color: #c9a227;
+            font-size: 0.95rem;
+            margin-bottom: 0.4rem;
+        }
+        .card-info .ruling-entry {
+            font-size: 0.85rem;
+            color: #ccc;
+            margin-bottom: 0.4rem;
+            padding-left: 0.5rem;
+            border-left: 2px solid #c9a22744;
+        }
+        .card-info .ruling-date {
+            font-size: 0.75rem;
+            color: #666;
+        }
         .error { color: #e74c3c; font-size: 1.1rem; }
         .spinner {
             width: 48px;
@@ -404,14 +459,35 @@
 
                 result.innerHTML = '';
 
-                // Left: regular card
+                // Left column: card image + info panel
+                const leftCol = document.createElement('div');
+                leftCol.className = 'card-left';
+
+                // Build info panel (before card image so it appears left)
+                const infoPanel = document.createElement('div');
+                infoPanel.className = 'card-info';
+                const rarityClass = 'rarity-' + (card.rarity || 'common');
+                const rarityLabel = {common:'Common',uncommon:'Uncommon',rare:'Rare',mythic:'Mythic',special:'Special',bonus:'Bonus'}[card.rarity] || card.rarity;
+                const eurPrice = card.prices?.eur ? `€${card.prices.eur}` : (card.prices?.eur_foil ? `€${card.prices.eur_foil} (Foil)` : '—');
+
+                let infoHtml = `<h2>${card.name}</h2>`;
+                infoHtml += `<div class="info-row"><span class="info-label">Seltenheit</span><span class="info-value ${rarityClass}">${rarityLabel}</span></div>`;
+                infoHtml += `<div class="info-row"><span class="info-label">Edition</span><span class="info-value">${card.set_name} (${card.released_at?.slice(0,4) || '?'})</span></div>`;
+                infoHtml += `<div class="info-row" id="first-print-row" style="display:none"><span class="info-label">Erstausgabe</span><span class="info-value" id="first-print-value"></span></div>`;
+                infoHtml += `<div class="info-row"><span class="info-label">Preis (EUR)</span><span class="info-value">${eurPrice}</span></div>`;
+                infoHtml += `<div class="rulings" id="rulings-section" style="display:none"><h3>Rulings & Hinweise</h3><div id="rulings-list"></div></div>`;
+                infoPanel.innerHTML = infoHtml;
+                leftCol.appendChild(infoPanel);
+
                 if (imgUrl) {
                     const img = document.createElement('img');
                     img.src = imgUrl;
                     img.alt = card.name;
                     img.className = 'card-img';
-                    result.appendChild(img);
+                    leftCol.appendChild(img);
                 }
+
+                result.appendChild(leftCol);
 
                 // Right: thermal print version
                 const thermalCanvas = await renderThermalCard(card);
@@ -421,6 +497,46 @@
                 result.appendChild(wrap);
 
                 document.getElementById('print-btn').style.display = 'inline-block';
+
+                // Fetch first printing if reprint
+                if (card.reprint && card.prints_search_uri) {
+                    fetch(card.prints_search_uri)
+                        .then(r => r.json())
+                        .then(prints => {
+                            if (prints.data && prints.data.length > 0) {
+                                const sorted = prints.data.sort((a, b) => new Date(a.released_at) - new Date(b.released_at));
+                                const first = sorted[0];
+                                if (first.set_name !== card.set_name) {
+                                    const row = document.getElementById('first-print-row');
+                                    const val = document.getElementById('first-print-value');
+                                    if (row && val) {
+                                        val.textContent = `${first.set_name} (${first.released_at?.slice(0,4) || '?'})`;
+                                        row.style.display = '';
+                                    }
+                                }
+                            }
+                        })
+                        .catch(() => {});
+                }
+
+                // Fetch rulings
+                if (card.rulings_uri) {
+                    fetch(card.rulings_uri)
+                        .then(r => r.json())
+                        .then(rulings => {
+                            if (rulings.data && rulings.data.length > 0) {
+                                const section = document.getElementById('rulings-section');
+                                const list = document.getElementById('rulings-list');
+                                if (section && list) {
+                                    section.style.display = '';
+                                    list.innerHTML = rulings.data.map(r =>
+                                        `<div class="ruling-entry"><span class="ruling-date">${r.published_at}</span><br>${r.comment}</div>`
+                                    ).join('');
+                                }
+                            }
+                        })
+                        .catch(() => {});
+                }
 
             } catch (e) {
                 result.innerHTML = `<p class="error">Request failed: ${e.message}</p>`;
